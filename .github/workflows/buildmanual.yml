@@ -1,0 +1,60 @@
+name: strongR-frida-17.5.2-arm64
+
+on:
+  workflow_dispatch: # Allows you to start it manually
+
+jobs:
+  android_build:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Android NDK
+      id: setup-ndk
+      uses: nttld/setup-ndk@v1.0.6
+      with:
+        ndk-version: r25b
+    
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential ninja-build gcc-multilib g++-multilib flex bison python3-requests python3-setuptools python3-dev python3-pip libc6-dev-i386
+        python3 -m pip install lief graphlib
+
+    - name: Build frida for Android ARM64 (v17.5.2)
+      shell: bash
+      run: |
+        # Clone exactly version 17.5.2
+        git clone --branch 17.5.2 --recurse-submodules https://github.com/frida/frida
+        
+        cd frida
+        # Apply the strongR patches found in your repository
+        for path in ../Patchs/strongR-frida/*
+        do
+          name=$(basename $path)
+          if [ -d "subprojects/$name" ]; then
+            echo "Applying patches to subprojects/$name"
+            cd subprojects/$name
+            git am ../../../Patchs/strongR-frida/$name/*.patch || echo "Patch failed or already applied, skipping..."
+            cd ../..
+          fi
+        done
+        
+        # Build specifically for arm64
+        export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
+        ./configure --host=android-arm64
+        make
+        
+        # Compress the output binary
+        gzip subprojects/frida-core/server/frida-server
+
+    - name: Upload Frida Server
+      uses: actions/upload-artifact@v4
+      with:
+        name: hluda-server-17.5.2-android-arm64
+        path: frida/subprojects/frida-core/server/frida-server.gz
